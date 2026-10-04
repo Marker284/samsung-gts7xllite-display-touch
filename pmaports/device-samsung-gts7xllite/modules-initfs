@@ -1,0 +1,8 @@
+# USB gadget networking for early debugging over the USB-C cable
+usb_f_rndis
+usb_f_ecm
+# UFS and SD
+ufs_qcom
+sdhci_msm
+# simple-framebuffer console before any DSI driver exists
+simpledrm

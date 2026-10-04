@@ -1,0 +1,79 @@
+# Kernel for Samsung Galaxy Tab S7 FE LTE (SM-T735), SM7225.
+#
+# Based on the sm6350-mainline tree. Our device lives in the `spen` branch of
+# vishalbala-nps/linux, which is a fork of sm6350-mainline/linux carrying:
+#   - arch/arm64/boot/dts/qcom/sm7225-samsung-gts7xllite.dts
+#   - the Wacom WEZ01 (S Pen) driver
+# Once that work lands in sm6350-mainline, switch _repo back upstream and keep
+# only our own patches here.
+maintainer="Mark <3333743.com@gmail.com>"
+_flavor="samsung-gts7xllite"
+pkgname=linux-$_flavor
+pkgver=7.2.0
+pkgrel=0
+pkgdesc="Mainline kernel fork for Samsung Galaxy Tab S7 FE LTE (SM7225)"
+arch="aarch64"
+_carch="arm64"
+url="https://github.com/vishalbala-nps/linux"
+license="GPL-2.0-only"
+options="!strip !check !tracedeps
+	pmb:cross-native
+	pmb:kconfigcheck-community
+	"
+makedepends="
+	bison
+	clang
+	elfutils-dev
+	findutils
+	flex
+	installkernel
+	linux-headers
+	lld
+	llvm
+	openssl-dev
+	pahole
+	perl
+	python3
+	zstd
+"
+
+# Pinned to the tip of the `spen` branch: "Increase i2c Clock frequency to 400khz".
+_commit="92c1b7792348314475c9bf993e29abc1e1a3bd95"
+_config="config-$_flavor.$arch"
+
+source="
+	$pkgname-$_commit.tar.gz::https://github.com/vishalbala-nps/linux/archive/$_commit.tar.gz
+	$_config
+"
+builddir="$srcdir/linux-$_commit"
+
+prepare() {
+	default_prepare
+	cp "$srcdir"/$_config .config
+}
+
+build() {
+	unset LDFLAGS
+	make ARCH="$_carch" LLVM=1 \
+		KBUILD_BUILD_VERSION="$((pkgrel + 1 ))-$_flavor"
+}
+
+package() {
+	# GZIP'd kernel image for boot.img (header v2, Samsung ABL)
+	install -Dm644 "$builddir/arch/$_carch/boot/vmlinuz" \
+		"$pkgdir/boot/vmlinuz"
+
+	make modules_install dtbs_install \
+		ARCH="$_carch" \
+		LLVM=1 \
+		INSTALL_PATH="$pkgdir"/boot/ \
+		INSTALL_MOD_PATH="$pkgdir"/usr \
+		INSTALL_MOD_STRIP=1 \
+		INSTALL_DTBS_PATH="$pkgdir"/boot/dtbs
+	rm -f "$pkgdir"/lib/modules/*/build "$pkgdir"/lib/modules/*/source
+
+	install -D "$builddir"/include/config/kernel.release \
+		"$pkgdir"/usr/share/kernel/$_flavor/kernel.release
+}
+
+sha512sums="TODO(verify) run abuild checksum once the tarball is in place"

@@ -1,30 +1,37 @@
-# Samsung Galaxy Tab S7 FE (SM-T735 / gts7xllite) — Display Panel & Touchscreen Drivers
+# Samsung Galaxy Tab S7 FE (SM-T735 / gts7xllite) — Display Panel, Touchscreen & GPU Drivers
 
-This repository provides working Linux mainline drivers, kernel patches, device tree definitions, firmware, and documentation for the **12.4" WQXGA (1600x2560) Display Panel** and **FocalTech FT8203 TDDI Touchscreen** on the **Samsung Galaxy Tab S7 FE LTE (SM-T735 / gts7xllite)** (Qualcomm Snapdragon 750G / SM7225).
+This repository provides working Linux mainline drivers, kernel patches, device tree definitions, firmware binaries, packaging files, and technical documentation for:
+- **12.4" WQXGA (1600x2560) Display Panel** (FocalTech FT8203 / TS124QDM, DSC 1.1 video mode)
+- **FocalTech FT8203 TDDI Touchscreen** (SPI, 10 touch points)
+- **Qualcomm Adreno 619 GPU** (freedreno/Turnip with `a615_zap.mbn` shader)
+- **postmarketOS / Alpine APK packages and APKBUILDs**
 
-Both the display (with DSC 1.1 compression via KMS) and multi-touch (10 touch points) are fully tested and functional on Linux 7.2+ (tested under Nura / postmarketOS with KDE Plasma Desktop).
+Tested on **Samsung Galaxy Tab S7 FE LTE (SM-T735 / gts7xllite)** with Qualcomm Snapdragon 750G (SM7225) running Linux 7.2+ under Nura / postmarketOS with KDE Plasma Desktop.
 
 ---
 
 ## Table of Contents
 1. [Hardware Overview & Panel Detection](#hardware-overview--panel-detection)
-2. [Display Panel (FT8203 / TS124QDM) & The Upstream DPU Bug](#display-panel-ft8203--ts124qdm--the-upstream-dpu-bug)
+2. [Display Panel (FT8203 / TS124QDM) & Upstream DPU Bug Fix](#display-panel-ft8203--ts124qdm--upstream-dpu-bug-fix)
 3. [Touchscreen Controller (FT8203 SPI TDDI)](#touchscreen-controller-ft8203-spi-tddi)
-4. [Power Sequencing & RPMh PLDO Stepping Trap](#power-sequencing--rpmh-pldo-stepping-trap)
-5. [Repository Structure](#repository-structure)
-6. [How to Apply and Build](#how-to-apply-and-build)
-7. [Kernel Command Line & Booting](#kernel-command-line--booting)
+4. [GPU Enablement (Adreno 619 & a615_zap Shader)](#gpu-enablement-adreno-619--a615_zap-shader)
+5. [Power Sequencing & RPMh PLDO Stepping Trap](#power-sequencing--rpmh-pldo-stepping-trap)
+6. [Repository Structure](#repository-structure)
+7. [How to Apply and Build](#how-to-apply-and-build)
+8. [Prebuilt Packages & GitHub Releases](#prebuilt-packages--github-releases)
+9. [Kernel Command Line & Booting](#kernel-command-line--booting)
 
 ---
 
 ## Hardware Overview & Panel Detection
 
 ### Device Specs
-- **SoC:** Qualcomm Snapdragon 750G (**SM7225**, lagoon / lito family)
-- **Codename:** `gts7xllite` (LTE: SM-T735)
+- **SoC:** Qualcomm Snapdragon 750G (**SM7225**, lagoon / lito platform family)
+- **Codename:** `gts7xllite` (LTE model: SM-T735)
+- **GPU:** Qualcomm Adreno 619
 - **Display:** 12.4" TFT LCD, 1600x2560 (portrait native mounting), 60 Hz
 - **Display Driver IC (DDIC):** FocalTech **FT8203** (TS124QDM)
-- **Touch Controller:** FocalTech **FT8203** (TDDI on SPI)
+- **Touch Controller:** FocalTech **FT8203** (TDDI on SPI6)
 
 ### Dual-Sourcing Note (FocalTech vs Himax)
 Samsung dual-sourced the panels for the Tab S7 FE:
@@ -45,7 +52,7 @@ To verify which panel your device has:
 
 ---
 
-## Display Panel (FT8203 / TS124QDM) & The Upstream DPU Bug
+## Display Panel (FT8203 / TS124QDM) & Upstream DPU Bug Fix
 
 The display driver is located at `drivers/gpu/drm/panel/panel-ft8203-ts124qdm-wqxga.c`.
 
@@ -102,7 +109,7 @@ mipi_dsi_compression_mode(dsi, true);
 ### 3. Multiple Slices Per Packet (`slice_per_pkt > 1`)
 > **Patch:** `patches/0002-drm-msm-dsi-support-DSC-configurations-with-slice_per_pkt-greater-than-1.patch`
 
-Stock DT specifies `qcom,mdss-dsc-slice-per-pkt = <2>`, meaning both 800px slices for a line are packaged into a single DSI transmission. We backport `dsc_slice_per_pkt` support to `dsi_host.c` and `struct mipi_dsi_device`.
+Stock DT specifies `qcom,mdss-dsc-slice-per-pkt = <2>`, meaning both 800px slices for a line travel in a single DSI transmission. We backport `dsc_slice_per_pkt` support to `dsi_host.c` and `struct mipi_dsi_device`.
 
 ---
 
@@ -125,7 +132,7 @@ Because power and reset are shared with the display, the touch driver implements
 ### Crucial Firmware Upload & Vendor ECC Checksum
 The chip contains no internal flash memory for touch firmware. On reset, it boots into a ROM bootloader and replies `0xef` to register reads.
 
-1. **Firmware File:** `/lib/firmware/tsp_focaltech/ft8203_gts7xllite.bin` (82,032 bytes, included in `firmware/`).
+1. **Firmware File:** `firmware/tsp_focaltech/ft8203_gts7xllite.bin` (82,032 bytes). Install to `/lib/firmware/tsp_focaltech/ft8203_gts7xllite.bin`.
 2. **PRAM Upload:** The driver writes the firmware into the chip's PRAM via SPI chunked transfers.
 3. **The Mandatory ECC Checksum Step:**
    Merely writing PRAM and sending command `0x08` (run) leaves the chip inert (`flow_work_cnt` in register `0x91` stays at 0).
@@ -139,6 +146,50 @@ The chip contains no internal flash memory for touch firmware. On reset, it boot
 
 ### Coordinate Offsets
 In vendor Samsung drivers, the SPI packet structure includes the register command in byte 0. In our driver's buffer layout, point data starts at offset 2 (not offset 3).
+
+---
+
+## GPU Enablement (Adreno 619 & a615_zap Shader)
+
+The Snapdragon 750G (SM7225) features a Qualcomm Adreno 619 GPU.
+
+### Zap Shader Requirement
+Qualcomm Adreno 6xx GPUs require a signed microcode blob (**zap shader**) to be loaded by TrustZone before the GPU can be switched out of secure mode. Without it, the GPU driver (`msm_adreno`) fails during initialization:
+```
+[drm:adreno_zap_shader_load] *ERROR* Zap shader firmware not found!
+```
+
+### Extraction & Squashing
+On SM-T735, the zap shader is stored in the device's stock `apnhlos` partition (`sda19`):
+`/mnt/apn/image/a615_zap.{mdt,b00,b01,b02}`.
+
+Because mainline expects a single monolithic `.mbn` file, we squashed the split ELF segments using the included script `tools/pil-squash.py`:
+```sh
+tools/pil-squash.py /mnt/apn/image/a615_zap.mdt firmware/qcom/sm7225/Samsung/gts7xllite/a615_zap.mbn
+```
+
+### Included Binaries & Target Locations
+The squashed zap shader and GMU firmware are provided in this repository under `firmware/`:
+1. **Zap Shader:**
+   - Source: `firmware/qcom/sm7225/Samsung/gts7xllite/a615_zap.mbn`
+   - Target in rootfs: `/lib/firmware/qcom/sm7225/Samsung/gts7xllite/a615_zap.mbn`
+2. **Adreno GMU Microcode:**
+   - Source: `firmware/qcom/a619_gmu.bin` & `firmware/qcom/a630_sqe.fw`
+   - Target in rootfs: `/lib/firmware/qcom/a619_gmu.bin` & `/lib/firmware/qcom/a630_sqe.fw`
+
+### Device Tree Nodes
+In `dts/sm7225-samsung-gts7xllite.dts`:
+```dts
+&gpu {
+	status = "okay";
+};
+
+&gpu_zap_shader {
+	firmware-name = "qcom/sm7225/Samsung/gts7xllite/a615_zap.mbn";
+};
+```
+
+Once loaded, Mesa (freedreno / Turnip Vulkan driver) provides full hardware acceleration for Wayland, Plasma Desktop, and 3D games.
 
 ---
 
@@ -158,17 +209,10 @@ However, Qualcomm RPMh PLDO regulators (`pmic5_pldo` in `drivers/regulator/qcom-
 $$\frac{1\,900\,000 - 1\,504\,000}{8\,000} = 49.5 \quad (\text{not an integer step!})$$
 
 **The Trap:**
-If you set:
-```dts
-vreg_l14a: ldo14 {
-    regulator-min-microvolt = <1900000>;
-    regulator-max-microvolt = <1900000>;
-};
-```
-The regulator core cannot resolve 1.900 V onto the hardware grid. The entire `pm6350` regulator driver fails probing, which prevents UFS storage, USB, PHYs, and MDSS from ever probing (`deferred probe pending` indefinitely).
+If you set `1900000` min/max, the regulator core cannot resolve 1.900 V onto the hardware grid. The entire `pm6350` regulator driver fails probing, which prevents UFS storage, USB, PHYs, and MDSS from ever probing (`deferred probe pending` indefinitely).
 
 **The Solution:**
-Constrain `vreg_l14a` to valid grid steps:
+Constrain `vreg_l14a` to valid grid steps (e.g. 1.896 V):
 ```dts
 vreg_l14a: ldo14 {
     regulator-min-microvolt = <1896000>;
@@ -193,10 +237,21 @@ vreg_l14a: ldo14 {
 │   ├── 0003-drivers-add-FT8203-panel-and-touchscreen-Kconfig-and-Makefile.patch
 │   └── 0004-arm64-dts-qcom-sm7225-samsung-gts7xllite-add-display-and-touch.patch
 ├── dts/
-│   └── sm7225-samsung-gts7xllite.dts       # Complete updated device tree
+│   └── sm7225-samsung-gts7xllite.dts       # Complete updated device tree (Display + Touch + GPU)
 ├── firmware/
-│   └── tsp_focaltech/
-│       └── ft8203_gts7xllite.bin           # Touchscreen PRAM firmware (82 KB)
+│   ├── tsp_focaltech/
+│   │   └── ft8203_gts7xllite.bin           # Touchscreen PRAM firmware (82 KB)
+│   └── qcom/
+│       ├── a619_gmu.bin                    # Adreno 619 GMU microcode
+│       ├── a630_sqe.fw                     # Adreno SQE microcode
+│       └── sm7225/Samsung/gts7xllite/
+│           └── a615_zap.mbn                # Extracted and squashed Adreno 619 ZAP shader
+├── pmaports/
+│   ├── device-samsung-gts7xllite/          # postmarketOS device package (APKBUILD, deviceinfo)
+│   ├── firmware-samsung-gts7xllite/        # postmarketOS firmware package (APKBUILD)
+│   └── linux-samsung-gts7xllite/           # postmarketOS kernel package (APKBUILD)
+├── tools/
+│   └── pil-squash.py                       # Python utility to squash .mdt + .bNN into .mbn
 └── README.md
 ```
 
@@ -224,6 +279,8 @@ CONFIG_DRM_PANEL_FOCALTECH_FT8203_TS124QDM=y
 CONFIG_TOUCHSCREEN_FOCALTECH_FT8203=m
 CONFIG_DRM_DISPLAY_DSC_HELPER=y
 CONFIG_SPI_QCOM_GENI=y
+CONFIG_DRM_MSM=y
+CONFIG_DRM_MSM_GPU=y
 ```
 
 ### 3. Build Notes (Clang / CFI)
@@ -231,10 +288,31 @@ If building an Android/postmarketOS mainline kernel with Clang and `CONFIG_CFI=y
 Always build with Clang (`make LLVM=1 ARCH=arm64`). Building out-of-tree modules with GCC against a Clang-CFI kernel will cause CFI oopses on module load.
 
 ### 4. Install Firmware
-Copy the touchscreen firmware file to your root filesystem:
+Copy all firmware files to your root filesystem:
 ```sh
+# Touchscreen firmware
 mkdir -p /lib/firmware/tsp_focaltech/
 cp firmware/tsp_focaltech/ft8203_gts7xllite.bin /lib/firmware/tsp_focaltech/
+
+# GPU firmware
+mkdir -p /lib/firmware/qcom/sm7225/Samsung/gts7xllite/
+cp firmware/qcom/sm7225/Samsung/gts7xllite/a615_zap.mbn /lib/firmware/qcom/sm7225/Samsung/gts7xllite/
+cp firmware/qcom/a619_gmu.bin /lib/firmware/qcom/
+cp firmware/qcom/a630_sqe.fw /lib/firmware/qcom/
+```
+
+---
+
+## Prebuilt Packages & GitHub Releases
+
+Pre-compiled binary packages for postmarketOS / Alpine Linux (`aarch64`) are available under [Releases](https://github.com/Marker284/samsung-gts7xllite-display-touch/releases):
+- `linux-samsung-gts7xllite-7.2.0-r1.apk` — Linux kernel with all patches, display, touch and USB gadget built-in
+- `device-samsung-gts7xllite-0-r0.apk` — Device profile and udev rules
+- `firmware-samsung-gts7xllite-*.apk` — Subpackages for wlan, adsp, cdsp, modem, hexagonfs
+
+To install directly on the device:
+```sh
+apk add --allow-untrusted linux-samsung-gts7xllite-7.2.0-r1.apk
 ```
 
 ---
@@ -254,5 +332,5 @@ console=tty0 ignore_loglevel loglevel=8 fbcon=nodefer pmos.nosplash panel_ft8203
 ---
 
 ## Authors & Credits
-- **Mark (Marker284)** — Kernel debugging, DPU DSC line width fix, FT8203 touchscreen reverse-engineering & ECC implementation, DTS integration.
+- **Mark (Marker284)** — Kernel debugging, DPU DSC line width fix, FT8203 touchscreen reverse-engineering & ECC implementation, GPU zap shader extraction, DTS integration.
 - Driver baseline generated with `linux-mdss-dsi-panel-driver-generator` by z3ntu and ported from Samsung downstream sources (`daviddean-x/android_kernel-gts7xllite`).

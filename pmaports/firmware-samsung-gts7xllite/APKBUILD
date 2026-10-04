@@ -1,0 +1,97 @@
+# Firmware blobs for Samsung Galaxy Tab S7 FE LTE (SM-T735), SM7225.
+#
+# Extracted from the stock vendor partition and published by the porter.
+# DT firmware-name paths are "qcom/sm7225/Samsung/gts7xllite/<blob>.mbn"
+# (see arch/arm64/boot/dts/qcom/sm7225-samsung-gts7xllite.dts).
+#
+# No -adreno subpackage yet: &gpu is still disabled in the DT and the repo carries
+# no a615_zap.mbn. When the GPU is enabled, pull a615_zap.mbn + a619_gmu.bin out of
+# the stock firmware and add the subpackage here.
+maintainer="Mark <3333743.com@gmail.com>"
+pkgname=firmware-samsung-gts7xllite
+pkgver=20260914
+pkgrel=0
+pkgdesc="Firmware for Samsung Galaxy Tab S7 FE LTE"
+subpackages="
+	$pkgname-adsp
+	$pkgname-cdsp
+	$pkgname-hexagonfs
+	$pkgname-ipa
+	$pkgname-modem
+	$pkgname-wlan
+	"
+url="https://github.com/vishalbala-nps/firmware-samsung-gts7xllite"
+arch="aarch64"
+license="proprietary"
+makedepends="pil-squasher"
+options="!check !strip !archcheck !tracedeps textrels pmb:cross-native"
+_commit="98d77cd6e66dbe7667f5a5849656f3c8c42f8f0e"
+source="$pkgname-$_commit.tar.gz::https://github.com/vishalbala-nps/firmware-samsung-gts7xllite/archive/$_commit.tar.gz"
+builddir="$srcdir/firmware-samsung-gts7xllite-$_commit"
+
+_fwdir="usr/lib/firmware/qcom/sm7225/Samsung/gts7xllite"
+
+build() {
+	for i in *.mdt; do
+		pil-squasher "$(basename "$i" .mdt)".mbn "$i"
+	done
+}
+
+package() {
+	# parent package is empty
+	mkdir -p "$pkgdir"
+}
+
+adsp() {
+	pkgdesc="Samsung Galaxy Tab S7 FE LTE adsp firmware"
+
+	install -Dm644 "$builddir"/adsp.mbn -t "$subpkgdir/$_fwdir/"
+	install -Dm644 "$builddir"/adsp*.jsn -t "$subpkgdir/$_fwdir/"
+}
+
+cdsp() {
+	pkgdesc="Samsung Galaxy Tab S7 FE LTE cdsp firmware"
+
+	install -Dm644 "$builddir"/cdsp.mbn -t "$subpkgdir/$_fwdir/"
+	install -Dm644 "$builddir"/cdsp*.jsn -t "$subpkgdir/$_fwdir/"
+}
+
+hexagonfs() {
+	pkgdesc="Samsung Galaxy Tab S7 FE LTE hexagonfs files"
+
+	mkdir -p "$subpkgdir"/usr/share/qcom/sm7225/Samsung/
+	cp -r "$builddir"/hexagonfs/ \
+		"$subpkgdir"/usr/share/qcom/sm7225/Samsung/gts7xllite
+
+	# acdb and dsp are only needed once audio is wired up
+	rm -r "$subpkgdir"/usr/share/qcom/sm7225/Samsung/gts7xllite/acdb/
+	rm -r "$subpkgdir"/usr/share/qcom/sm7225/Samsung/gts7xllite/dsp/
+
+	find "$subpkgdir/usr/share/qcom/sm7225/Samsung/gts7xllite/" \
+		-type f -exec chmod 0644 {} \;
+}
+
+ipa() {
+	pkgdesc="Samsung Galaxy Tab S7 FE LTE ipa firmware"
+
+	# The DT asks for lagoon_ipa_fws.mbn by that exact name, unlike FP4.
+	install -Dm644 "$builddir"/lagoon_ipa_fws.mbn -t "$subpkgdir/$_fwdir/"
+}
+
+modem() {
+	pkgdesc="Samsung Galaxy Tab S7 FE LTE modem firmware"
+
+	install -Dm644 "$builddir"/modem.mbn -t "$subpkgdir/$_fwdir/"
+	install -Dm644 "$builddir"/modem*.jsn -t "$subpkgdir/$_fwdir/"
+
+	cp -r "$builddir"/modem_pr/ "$subpkgdir/$_fwdir/"
+	find "$subpkgdir/$_fwdir/" -type f -exec chmod 0644 {} \;
+}
+
+wlan() {
+	pkgdesc="Samsung Galaxy Tab S7 FE LTE wlan firmware"
+
+	install -Dm644 "$builddir"/wlanmdsp.mbn -t "$subpkgdir/$_fwdir/"
+}
+
+sha512sums="TODO(verify) run abuild checksum in the pmaports checkout"

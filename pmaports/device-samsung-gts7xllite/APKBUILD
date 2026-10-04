@@ -1,0 +1,44 @@
+# Reference: <https://postmarketos.org/devicepkg>
+maintainer="Mark <3333743.com@gmail.com>"
+pkgname=device-samsung-gts7xllite
+pkgdesc="Samsung Galaxy Tab S7 FE LTE"
+pkgver=0
+pkgrel=0
+url="https://nura.eco"
+license="MIT"
+arch="aarch64"
+options="!check !archcheck"
+depends="
+	firmware-samsung-gts7xllite-adsp
+	firmware-samsung-gts7xllite-cdsp
+	firmware-samsung-gts7xllite-hexagonfs
+	firmware-samsung-gts7xllite-ipa
+	firmware-samsung-gts7xllite-modem
+	firmware-samsung-gts7xllite-wlan
+	hexagonrpcd
+	linux-firmware-ath10k
+	linux-samsung-gts7xllite
+	make-dynpart-mappings
+	mkbootimg
+	postmarketos-base
+	soc-qcom
+	soc-qcom-modem
+"
+# No mesa-vulkan-freedreno and no adreno firmware yet: &gpu is still disabled in the
+# DT, so there is nothing for Turnip to drive. Add both together with the zap shader
+# once the GPU comes up.
+makedepends="devicepkg-dev"
+source="
+	deviceinfo
+	modules-initfs
+"
+
+build() {
+	devicepkg_build $startdir $pkgname
+}
+
+package() {
+	devicepkg_package $startdir $pkgname
+}
+
+sha512sums="TODO(verify) run abuild checksum in the pmaports checkout"
