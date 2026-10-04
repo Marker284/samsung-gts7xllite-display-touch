@@ -331,6 +331,42 @@ console=tty0 ignore_loglevel loglevel=8 fbcon=nodefer pmos.nosplash panel_ft8203
 
 ---
 
+## Critical Troubleshooting & Gotchas (Save Yourself Days of Debugging!)
+
+During the porting and GPU bringup process, several deceptive issues appeared that initially mimicked "GPU hangs" or "dead SoC freezes":
+
+### 1. The False "GPU Freeze" vs Real GPU Status
+- **Symptom:** The system would freeze around login into Plasma or GNOME.
+- **Investigation:** Running with software rendering (`LIBGL_ALWAYS_SOFTWARE=1`) froze in the exact same manner. Adreno 619 firmware (`a619_gmu.bin`, `a630_sqe.fw`, `a615_zap.mbn`) loads and probes cleanly. The GPU was **not** the culprit.
+
+### 2. The ADSP Crash Loop (TrustZone EL3 Lockup)
+- **Symptom:** System freezes completely for tens of seconds, ignores NMI, records 0 CPU ticks, then suddenly unfreezes on its own without rebooting.
+- **Root Cause:** When the ADSP coprocessor (`remoteproc0`) is started without Samsung's proprietary sensor registry partition, its sensor service crashes in an endless loop every 4 seconds:
+  ```
+  remoteproc0: fatal error: EF:sensor_process:0x1:SNS_REG_INIT:...sns_registry_sensor.c:95
+  remoteproc0: handling crash #47 in adsp
+  ```
+  Each recovery crash issues long, blocking SMC calls to TrustZone in EL3 to authenticate and re-initialize memory. While TrustZone executes, Linux cores are blocked from executing and cannot respond to timer ticks or NMI!
+- **Fix:** Blacklist ADSP / sensor firmware or take it offline:
+  ```sh
+  echo "blacklist qcom_q6v5_pas" >> /etc/modprobe.d/blacklist-adsp.conf
+  # or at runtime:
+  echo 0 > /sys/class/remoteproc/remoteproc0/state
+  ```
+
+### 3. The 90-Second Screen Blanking / DPMS Trap
+- **Symptom:** Device resets hard to download/reboot after roughly 60–90 seconds of inactivity, leaving zero panic logs.
+- **Root Cause:** Desktop environments (GNOME, Plasma) default to dimming and blanking the screen on idle (~90s). On this panel and DSI controller, entering DPMS off / blanking hangs the DSI bus. The Qualcomm hardware APSS Watchdog Timer bites and forces a reboot.
+- **Fix:** In your desktop environment or session manager, **completely disable screen blanking, sleep, and DPMS**.
+
+### 4. Hardware Charging Reality (Silicon Mitus SM5714)
+- **Symptom:** `/sys/class/power_supply` is completely empty. The device loses battery over time even while plugged into USB.
+- **Root Cause:** Samsung did not use Qualcomm's PMIC charger (`pm7250b`). Instead, the Tab S7 FE uses an external **Silicon Mitus SM5714** MFD (charger, fuel gauge, MUIC, USB-PD) plus **SM5440** direct charger over I2C.
+- Mainline Linux currently has no driver for the SM5714.
+- **Workaround:** Charge the tablet when powered off or while resting in Samsung Download Mode (where the Samsung bootloader's hardware charging loop runs).
+
+---
+
 ## Authors & Credits
 - **Mark (Marker284)** — Kernel debugging, DPU DSC line width fix, FT8203 touchscreen reverse-engineering & ECC implementation, GPU zap shader extraction, DTS integration.
 - Driver baseline generated with `linux-mdss-dsi-panel-driver-generator` by z3ntu and ported from Samsung downstream sources (`daviddean-x/android_kernel-gts7xllite`).
