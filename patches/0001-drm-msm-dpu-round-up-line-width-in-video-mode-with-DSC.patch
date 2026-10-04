@@ -1,0 +1,52 @@
+From: Mark <mark@localhost>
+Date: Sat, 3 Oct 2026 21:18:45 +0500
+Subject: [PATCH 1/4] drm/msm/dpu: round up line width in video mode with DSC
+
+When calculating the compressed line width in video mode with DSC,
+three bytes of compressed data travel in one pixel slot:
+
+    timing->width = timing->width * drm_dsc_get_bpp_int(dsc) /
+                    (dsc->bits_per_component * 3);
+
+If `width * bpp / (bpc * 3)` is not an integer (e.g. 1600 * 8 / 24 = 533.33
+on the 1600x2560 FT8203 panel), integer truncation yields 533 slots.
+
+However, `dsi_host.c` already computes `hdisplay` using DIV_ROUND_UP,
+expecting 534 slots (and tracking the remainder byte in `eol_byte_num`).
+Because DPU was outputting 533 slots while DSI expected 534, the line
+never finished, resulting in missing vblank interrupts (`vblank wait timed out`),
+no `video done`, and a completely black display.
+
+Round up the line width in `dpu_encoder_phys_vid` using DIV_ROUND_UP,
+matching `dsi_host.c`.
+
+Signed-off-by: Mark <mark@localhost>
+---
+ drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_vid.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_vid.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_vid.c
+index 28e8334..6c5e631 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_vid.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_vid.c
+@@ -134,8 +134,17 @@ static void drm_mode_to_intf_timing_params(
+ 		 * TODO: replace drm_dsc_get_bpp_int with logic to handle
+ 		 * fractional part if there is fraction
+ 		 */
+-		timing->width = timing->width * drm_dsc_get_bpp_int(dsc) /
+-				(dsc->bits_per_component * 3);
++		/*
++		 * Round up: three bytes of compressed data travel in one pixel
++		 * slot, and a line whose byte count is not a multiple of three
++		 * still needs a final, partially filled slot. dsi_host.c uses
++		 * DIV_ROUND_UP here too (and tracks the remainder as
++		 * eol_byte_num); truncating instead makes the DPU send one slot
++		 * per line less than the DSI expects, so a line never completes
++		 * and the interface produces no vblank at all.
++		 */
++		timing->width = DIV_ROUND_UP(timing->width * drm_dsc_get_bpp_int(dsc),
++					     dsc->bits_per_component * 3);
+ 		timing->xres = timing->width;
+ 		timing->dce_bytes_per_line = msm_dsc_get_bytes_per_line(dsc);
+ 	}
+-- 

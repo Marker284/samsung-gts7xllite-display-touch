@@ -1,0 +1,156 @@
+From: Mark <mark@localhost>
+Date: Sun, 4 Oct 2026 12:48:45 +0500
+Subject: [PATCH 4/4] arm64: dts: qcom: sm7225-samsung-gts7xllite: add display panel and touchscreen
+
+Add DT nodes for:
+- Panel power regulators (fixed regulators on TLMM 72, 88, 89)
+- Constrain pm6350 L14 (vreg_l14a) to 1896000-1904000 uV to match the RPMh PLDO grid
+- dispcc, mdss, mdss_dsi0, mdss_dsi0_phy, and focaltech,ft8203-ts124qdm panel
+- spi6 with focaltech,ft8203-ts touchscreen (TDDI drm_panel follower on TLMM 16, 22, 18)
+
+Signed-off-by: Mark <mark@localhost>
+---
+ .../boot/dts/qcom/sm7225-samsung-gts7xllite.dts    | 113 ++++++++++++++++++++-
+ 1 file changed, 109 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7225-samsung-gts7xllite.dts b/arch/arm64/boot/dts/qcom/sm7225-samsung-gts7xllite.dts
+index e56171a..b1219b2 100644
+--- a/arch/arm64/boot/dts/qcom/sm7225-samsung-gts7xllite.dts
++++ b/arch/arm64/boot/dts/qcom/sm7225-samsung-gts7xllite.dts
+@@ -69,6 +69,41 @@
+ 		};
+ 	};
+ 
++	/*
++	 * Panel rails. The stock device tree models all of these as GPIO-backed
++	 * fixed regulators and enables them in this order, with the delays kept
++	 * in qcom,panel-supply-entry: panel_ldo_en (pm6350 L14), panel_buck_en,
++	 * panel_buck_en2, panel_boost_en, then panel_reset.
++	 */
++	panel_avdd: regulator-panel-avdd {
++		compatible = "regulator-fixed";
++		regulator-name = "panel_buck_en";
++		gpio = <&tlmm 88 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-boot-on;
++	};
++
++	panel_avee: regulator-panel-avee {
++		compatible = "regulator-fixed";
++		regulator-name = "panel_buck_en2";
++		gpio = <&tlmm 89 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-boot-on;
++	};
++
++	/*
++	 * The panel driver takes only vddi/avdd/avee, so the boost rail is kept
++	 * on for as long as the panel is powered.
++	 */
++	panel_boost: regulator-panel-boost {
++		compatible = "regulator-fixed";
++		regulator-name = "panel_boost_en";
++		gpio = <&tlmm 72 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-boot-on;
++		regulator-always-on;
++	};
++
+ 	reserved-memory {
+ 		framebuffer_mem: memory@a0000000 {
+ 			reg = <0 0xa0000000 0 (2560 * 1600 * 4)>;
+@@ -267,8 +302,16 @@
+ 
+ 		vreg_l14a: ldo14 {
+ 			regulator-name = "vreg_l14a";
+-			regulator-min-microvolt = <1700000>;
+-			regulator-max-microvolt = <1900000>;
++			/*
++			 * Panel VDDI; the stock device tree asks for 1.9 V, but
++			 * RPMh PLDOs step in 8 mV from 1.504 V, so 1.9 V is not
++			 * representable and pinning the rail to it makes the
++			 * whole pm6350 regulator node fail to register - which
++			 * takes UFS, the PHYs and the display down with it.
++			 * 1.896 V is the nearest value on the grid.
++			 */
++			regulator-min-microvolt = <1896000>;
++			regulator-max-microvolt = <1904000>;
+ 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+ 		};
+ 
+@@ -432,11 +475,75 @@
+ };
+ 
+ &dispcc {
+-	status = "disabled";
++	status = "okay";
++};
++
++&mdss {
++	status = "okay";
++};
++
++&mdss_dsi0 {
++	vdda-supply = <&vreg_l22a>;
++
++	status = "okay";
++
++	panel: panel@0 {
++		/*
++		 * TS124QDM with a FocalTech FT8203 driver IC. The bootloader
++		 * names it ss_dsi_panel_FT8203_TS124QDM_WQXGA and reports
++		 * lcd_id=0x876270 on this unit; the stock overlay also carries
++		 * a CSOT/Himax HX83121A variant, selected by the strap on
++		 * GPIO 23, which reads 1 (FocalTech) here.
++		 */
++		compatible = "focaltech,ft8203-ts124qdm";
++		reg = <0>;
++
++		reset-gpios = <&tlmm 75 GPIO_ACTIVE_LOW>;
++
++		vddi-supply = <&vreg_l14a>;
++		avdd-supply = <&panel_avdd>;
++		avee-supply = <&panel_avee>;
++
++		port {
++			panel_in: endpoint {
++				remote-endpoint = <&mdss_dsi0_out>;
++			};
++		};
++	};
++};
++
++&mdss_dsi0_out {
++	data-lanes = <0 1 2 3>;
++	remote-endpoint = <&panel_in>;
++};
++
++&spi6 {
++	status = "okay";
++
++	touchscreen@0 {
++		/*
++		 * The touch half of the FT8203 TDDI controller. It shares its
++		 * supplies and reset with the panel, so the driver follows the
++		 * panel rather than powering anything itself.
++		 */
++		compatible = "focaltech,ft8203-ts";
++		reg = <0>;
++		spi-max-frequency = <7000000>;
++
++		interrupts-extended = <&tlmm 22 IRQ_TYPE_EDGE_FALLING>;
++		reset-gpios = <&tlmm 18 GPIO_ACTIVE_LOW>;
++
++		panel = <&panel>;
++
++		touchscreen-size-x = <1600>;
++		touchscreen-size-y = <2560>;
++	};
++};
++
++&mdss_dsi0_phy {
++	vdds-supply = <&vreg_l18a>;
++
++	status = "okay";
+ };
+-- 
