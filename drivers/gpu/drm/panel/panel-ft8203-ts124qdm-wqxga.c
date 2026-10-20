@@ -41,6 +41,19 @@ static int slice_per_pkt = 2;
 module_param(slice_per_pkt, int, 0644);
 MODULE_PARM_DESC(slice_per_pkt, "DSC slices per DSI packet (stock uses 2)");
 
+/*
+ * Powering the panel down and back up wedges the SoC. At boot the bootloader
+ * has already raised every rail, so the first prepare() only adds references
+ * and the init sequence lands on a live DDIC. A later unprepare() really cuts
+ * the rails, and the cold start that follows ends in DSI timeout and FIFO
+ * errors (dsi_err_worker: status=5) and a stalled pipeline; this is what kills
+ * the tablet on every compositor handover, i.e. on login. Until the power-on
+ * sequencing matches downstream, keep the panel powered once it is up.
+ */
+static bool keep_powered = true;
+module_param(keep_powered, bool, 0644);
+MODULE_PARM_DESC(keep_powered, "never power the panel down once it is on");
+
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
 #include <drm/drm_panel.h>
@@ -531,6 +544,10 @@ static int ft8203_ts124qdm_wqxga_unprepare(struct drm_panel *panel)
 	if (!ctx->prepared)
 		return 0;
 
+	/* Leave it prepared, so the next prepare() finds it running. */
+	if (keep_powered)
+		return 0;
+
 	ret = ft8203_ts124qdm_wqxga_off(ctx);
 	if (ret < 0)
 		dev_err(dev, "Failed to un-initialize panel: %d\n", ret);
@@ -581,45 +598,34 @@ static const struct drm_panel_funcs ft8203_ts124qdm_wqxga_panel_funcs = {
 	.get_modes = ft8203_ts124qdm_wqxga_get_modes,
 };
 
+/*
+ * Brightness goes out as a low-power DCS write, as the stock driver does
+ * (pwm_cmds->state = DSI_CMD_SET_STATE_LP). Sent in high speed in the middle
+ * of the video stream it trips DSI timeout and FIFO errors
+ * (dsi_err_worker: status=5), and a quick run of them, such as the fade the
+ * desktop plays when it dims the screen, wedges the SoC.
+ */
 static int ft8203_ts124qdm_wqxga_bl_update_status(struct backlight_device *bl)
 {
 	struct mipi_dsi_device *dsi = bl_get_data(bl);
 	u16 brightness = backlight_get_brightness(bl);
+	unsigned long flags = dsi->mode_flags;
 	int ret;
 
-	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
-
+	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 	ret = mipi_dsi_dcs_set_display_brightness(dsi, brightness);
-	if (ret < 0)
-		return ret;
+	dsi->mode_flags = flags;
 
-	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
-
-	return 0;
+	return ret < 0 ? ret : 0;
 }
 
-// TODO: Check if /sys/class/backlight/.../actual_brightness actually returns
-// correct values. If not, remove this function.
-static int ft8203_ts124qdm_wqxga_bl_get_brightness(struct backlight_device *bl)
-{
-	struct mipi_dsi_device *dsi = bl_get_data(bl);
-	u16 brightness;
-	int ret;
-
-	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
-
-	ret = mipi_dsi_dcs_get_display_brightness(dsi, &brightness);
-	if (ret < 0)
-		return ret;
-
-	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
-
-	return brightness;
-}
-
+/*
+ * No get_brightness: reading the level back is a DCS read, and the bus
+ * turnaround it needs in the middle of the video stream times out. Without
+ * it the core reports the level it last set.
+ */
 static const struct backlight_ops ft8203_ts124qdm_wqxga_bl_ops = {
 	.update_status = ft8203_ts124qdm_wqxga_bl_update_status,
-	.get_brightness = ft8203_ts124qdm_wqxga_bl_get_brightness,
 };
 
 static struct backlight_device *
