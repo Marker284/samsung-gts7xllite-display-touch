@@ -250,8 +250,15 @@ vreg_l14a: ldo14 {
 │   ├── device-samsung-gts7xllite/          # postmarketOS device package (APKBUILD, deviceinfo)
 │   ├── firmware-samsung-gts7xllite/        # postmarketOS firmware package (APKBUILD)
 │   └── linux-samsung-gts7xllite/           # postmarketOS kernel package (APKBUILD)
+├── notes/                                  # Port working notes (Russian)
+│   ├── LOG.md                              # Session-by-session log of the whole port
+│   ├── hardware.md                         # Confirmed hardware facts, stock boot.img/dtbo recon
+│   └── flashing.md                         # Flashing procedure (samloader/odin4, RECOVERY-only boot)
 ├── tools/
-│   └── pil-squash.py                       # Python utility to squash .mdt + .bNN into .mbn
+│   ├── pil-squash.py                       # Python utility to squash .mdt + .bNN into .mbn
+│   ├── mk-recovery.sh                      # Pack kernel + initramfs into a RECOVERY image/tar
+│   ├── restore-android.sh                  # Roll back to stock Android (quick or full)
+│   └── device/                             # Helper scripts run on the tablet over SSH
 └── README.md
 ```
 
